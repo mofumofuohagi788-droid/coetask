@@ -519,8 +519,10 @@ mic.addEventListener('click',()=>{
   if(recording){ stopRec(); return; }
   rec=new SR(); rec.lang='ja-JP'; rec.interimResults=true; rec.maxAlternatives=1; rec.continuous=true;
   let finalText='';
-  rec.onstart=()=>{ recording=true; mic.classList.add('rec'); ov.classList.add('on'); heard.textContent='お話しください…（7秒）';
-    clearTimeout(recTimer); recTimer=setTimeout(()=>{ try{rec.stop()}catch(e){} },7000); };
+  // 発話中は切らない。声の反応が途切れて5秒経ったら停止
+  const armSilence=()=>{ clearTimeout(recTimer); recTimer=setTimeout(()=>{ try{rec.stop()}catch(e){} },5000); };
+  rec.onstart=()=>{ recording=true; mic.classList.add('rec'); ov.classList.add('on'); heard.textContent='お話しください…'; armSilence(); };
+  rec.onspeechstart=armSilence;
   rec.onresult=e=>{
     let interim='';
     for(let i=e.resultIndex;i<e.results.length;i++){
@@ -528,6 +530,7 @@ mic.addEventListener('click',()=>{
       if(r.isFinal) finalText+=r[0].transcript; else interim+=r[0].transcript;
     }
     heard.textContent=(finalText+interim)||'…';
+    armSilence();                 // 声を拾うたびに5秒カウントをリセット
   };
   rec.onerror=e=>{ heard.textContent='認識できませんでした'; toast('音声エラー：'+e.error); };
   rec.onend=()=>{
