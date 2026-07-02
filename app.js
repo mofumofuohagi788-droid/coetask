@@ -49,14 +49,19 @@ const team={
     code=(code||'').trim();
     if(!code){ toast('チームコードを入力してください'); return false; }
     if(!this.configured()){ toast('Firebase未設定（手順書STEPを実施）'); return false; }
+    if(this.on && this.code===code) return true;   // 既に同チーム接続中なら何もしない
     try{
       const [appMod,fsMod]=await Promise.all([
         import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js'),
         import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js')
       ]);
-      const app=appMod.initializeApp(FIREBASE_CONFIG);
-      this._db=fsMod.getFirestore(app);
+      // アプリ/DBは一度だけ生成（二重初期化の例外を防止）
+      const app=appMod.getApps().length ? appMod.getApp() : appMod.initializeApp(FIREBASE_CONFIG);
+      this._db=this._db || fsMod.getFirestore(app);
       this._fs=fsMod;
+      // 既存リスナーを必ず解除してから張り直す（多重購読でチラつく/取りこぼす問題を防止）
+      if(this._unsub){ this._unsub(); this._unsub=null; }
+      if(this._unsubShared){ this._unsubShared(); this._unsubShared=null; }
       this._col=fsMod.collection(this._db,'teams',code,'tasks');
       this._sharedCol=fsMod.collection(this._db,'teams',code,'shared');
       this._unsub=fsMod.onSnapshot(this._col,
@@ -76,33 +81,32 @@ const team={
   removeShared(id){ if(!this.on)return; this._fs.deleteDoc(this._fs.doc(this._sharedCol,id)).catch(()=>{}); },
   async push(list){ for(const t of list) this.save(t); },   // 個人タスクをチームへ投入
   async pushShared(list){ for(const item of list) this.saveShared(item); },
-  disconnect(){ if(this._unsub)this._unsub(); this.on=false; this.code=null;
-    if(this._unsubShared)this._unsubShared();
+  disconnect(){ if(this._unsub)this._unsub(); if(this._unsubShared)this._unsubShared();
+    this._unsub=null; this._unsubShared=null; this._col=null; this._sharedCol=null;
+    this.on=false; this.code=null;
     settings.data.team=null; settings.save(); tasks=store.load(); sharedItems=sharedStore.load(); render(); renderShared(); renderTeam(); toast('個人モードに戻りました'); }
 };
 
 /* データ層：チーム接続時はFirestore、未接続時はlocalStorage */
 function persist(t){
+  if(team.on){ team.save(t); return; }          // 表示更新はonSnapshotに一元化（重複/チラつき防止）
   const i=tasks.findIndex(x=>x.id===t.id);
   if(i<0) tasks.push(t); else tasks[i]=t;
-  if(team.on) team.save(t); else store.save(tasks);
-  render();
+  store.save(tasks); render();
 }
 function removeTask(id){
-  tasks=tasks.filter(x=>x.id!==id);
-  if(team.on) team.remove(id); else store.save(tasks);
-  render();
+  if(team.on){ team.remove(id); return; }
+  tasks=tasks.filter(x=>x.id!==id); store.save(tasks); render();
 }
 function persistShared(item){
+  if(team.on){ team.saveShared(item); return; }
   const i=sharedItems.findIndex(x=>x.id===item.id);
   if(i<0) sharedItems.push(item); else sharedItems[i]=item;
-  if(team.on) team.saveShared(item); else sharedStore.save(sharedItems);
-  renderShared();
+  sharedStore.save(sharedItems); renderShared();
 }
 function removeShared(id){
-  sharedItems=sharedItems.filter(x=>x.id!==id);
-  if(team.on) team.removeShared(id); else sharedStore.save(sharedItems);
-  renderShared();
+  if(team.on){ team.removeShared(id); return; }
+  sharedItems=sharedItems.filter(x=>x.id!==id); sharedStore.save(sharedItems); renderShared();
 }
 
 /* ---------- 日本語 日時パーサ ---------- */
