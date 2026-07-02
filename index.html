@@ -89,6 +89,11 @@
   .sharetextarea{min-height:82px; resize:vertical; line-height:1.5;}
   .shareactions{display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;}
   .shareadd{border:none; background:var(--accent); color:#fff; border-radius:12px; padding:12px 18px; font-size:15px;}
+  .sharemic{width:46px; height:46px; border-radius:50%; flex:none; border:none; color:#fff; font-size:20px;
+            background:radial-gradient(circle at 30% 30%,var(--accent2),var(--accent)); box-shadow:none;}
+  .sharemic.rec{background:radial-gradient(circle at 30% 30%,#ff8a94,var(--danger)); animation:pulse 1.1s infinite;}
+  .sharehint{color:var(--sub); font-size:12px; margin-top:8px; line-height:1.6;}
+  .badge.period{color:var(--warn); border-color:#6b5327;}
   .miniopt{display:flex; align-items:center; gap:8px; color:var(--sub); font-size:13px;}
   .miniopt input{width:18px; height:18px;}
   .shareitem{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
@@ -237,13 +242,16 @@
         <option value="regular">定期確認</option>
       </select>
       <input class="shareinput" id="shareTitle" placeholder="件名">
+      <input class="shareinput" id="sharePeriod" placeholder="期間・時刻（例：12〜14日 15時 / 1-10日）">
       <input class="shareinput" id="shareUrl" placeholder="URL（任意）" inputmode="url" autocapitalize="off" autocorrect="off">
       <textarea class="sharetextarea" id="shareNote" placeholder="確認事項・メモ"></textarea>
     </div>
     <div class="shareactions">
       <label class="miniopt"><input type="checkbox" id="shareMonthly"> 毎月表示</label>
+      <button class="mic sharemic" id="shareMic" aria-label="音声で一括入力">🎙️</button>
       <button class="shareadd" id="shareAdd">共有ページに追加</button>
     </div>
+    <div class="sharehint">🎙️を押して「歯科検診 12〜14日 15時」のように件名・期間・時刻をまとめて話すと各欄に反映します。</div>
   </div>
   <div id="sharedList"></div>
 </main>

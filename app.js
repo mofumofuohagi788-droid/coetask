@@ -124,11 +124,27 @@ function toNum(s){
   }
   return KANJI[s]??null;
 }
-// 発話テキスト -> {title, due:Date|null}
+const SEP='(?:から|かけて|[〜～~ー－–—\\-−]|to)';   // 期間の区切り
+function rollDay(base, month, day, now){          // 日付生成（過去なら翌月/翌年へ）
+  const d=new Date(base);
+  if(month!=null) d.setMonth(month-1);
+  d.setDate(day);
+  if(d<now){ if(month!=null) d.setFullYear(d.getFullYear()+1); else d.setMonth(d.getMonth()+1); }
+  return d;
+}
+function rollFrom(startD, month, day){            // 終了日は開始日以降へ
+  const e=new Date(startD);
+  if(month!=null) e.setMonth(month-1);
+  e.setDate(day);
+  if(e<startD) e.setMonth(e.getMonth()+1);
+  return e;
+}
+// 発話テキスト -> {title, due, dueEnd, repeat}
 function parse(raw){
-  let t=(raw||'').replace(/[、。]/g,' ').trim();
+  // NFKC: 全角数字/記号・「：」等を半角化して認識精度を上げる
+  let t=(raw||'').replace(/[、。]/g,' ').normalize('NFKC').trim();
   const now=new Date();
-  let due=null, hasDate=false, hasTime=false, repeat=null;
+  let due=null, dEnd=null, hasDate=false, hasTime=false, repeat=null;
   const consume=re=>{ const m=t.match(re); if(m){ t=t.replace(m[0],' '); } return m; };
 
   const base=new Date(now); base.setSeconds(0,0);
@@ -136,7 +152,7 @@ function parse(raw){
 
   // 繰り返し（毎日 / 毎週 / 毎月）
   if(consume(/毎晩/)){ repeat='daily'; hasDate=true; d.setHours(20,0,0,0); hasTime=true; }
-  else if(consume(/毎朝|毎日|毎日中/)){ repeat='daily'; hasDate=true; }
+  else if(consume(/毎朝|毎日中|毎日/)){ repeat='daily'; hasDate=true; }
   else if(consume(/毎週間?/)){ repeat='weekly'; hasDate=true; }
   else if(consume(/毎月/)){ repeat='monthly'; hasDate=true; }
 
@@ -148,6 +164,23 @@ function parse(raw){
   m=consume(/(\d+|[一二三四五六七八九十]+)\s*日後[にはで]?/);
   if(m){ d.setDate(d.getDate()+toNum(m[1])); hasDate=true; }
 
+  // 来月 / 今月（単独「N日」の月基準）
+  let monthOff=null;
+  if(consume(/来月/)) monthOff=1; else if(consume(/今月/)) monthOff=0;
+
+  // 期間（範囲）: 3月12日〜3月14日 / 12日〜14日 / 12-14日 / 1-10日 / 12日から14日まで
+  if(!hasDate){
+    let mr=consume(new RegExp('(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日\\s*'+SEP+'+\\s*(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日'));
+    if(mr){ d=rollDay(base,+mr[1],+mr[2],now); dEnd=rollFrom(d,+mr[3],+mr[4]); hasDate=true; }
+    else{
+      mr=consume(new RegExp('(\\d{1,2})\\s*日?\\s*'+SEP+'+\\s*(\\d{1,2})\\s*日(?:まで)?'));
+      if(mr){
+        const mo = monthOff!=null ? now.getMonth()+monthOff+1 : null;
+        d=rollDay(base,mo,+mr[1],now); dEnd=rollFrom(d,mo,+mr[2]); hasDate=true;
+      }
+    }
+  }
+
   // 語彙的な日付
   if(!hasDate){
     if(consume(/(今日中|今日|本日|きょう)[にはまで]*/)){ hasDate=true; }
@@ -157,22 +190,33 @@ function parse(raw){
   }
   // 曜日（来週◯曜／◯曜日）
   m=consume(/(来週)?\s*([日月火水木金土])曜日?/);
-  if(m){
+  if(!hasDate && m){
     const target=WD[m[2]]; let add=(target-d.getDay()+7)%7;
-    if(add===0) add=7;           // 同じ曜日は次
-    if(m[1]) add+= (add<=0?7:0); // 来週指定
+    if(add===0) add=7;
     if(m[1] && add<7) add+=7;
     d.setDate(d.getDate()+add); hasDate=true;
   }
-  // N月N日
-  m=consume(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if(m){ d.setMonth(toNum(m[1])-1); d.setDate(toNum(m[2]));
-         if(d<now && !hasTime) d.setFullYear(d.getFullYear()+1); hasDate=true; }
+  // N月N日（単一）
+  if(!hasDate){
+    m=consume(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+    if(m){ d.setMonth(toNum(m[1])-1); d.setDate(toNum(m[2]));
+           if(d<now && !hasTime) d.setFullYear(d.getFullYear()+1); hasDate=true; }
+  }
+  // 単独の「N日」（12日 など。日後/日間 は除外）
+  if(!hasDate){
+    m=consume(/(\d{1,2})\s*日(?![後間])/);
+    if(m){
+      const day=toNum(m[1]);
+      if(monthOff!=null){ d=new Date(base); d.setMonth(now.getMonth()+monthOff); d.setDate(day); }
+      else d=rollDay(base,null,day,now);
+      hasDate=true;
+    }
+  }
 
   // 午前/午後・朝昼夜
   let ampm=null;
-  if(consume(/午後|夕方|夜/)) ampm='pm';
-  else if(consume(/午前|朝/)) ampm='am';
+  if(consume(/午後|ごご|夕方|夜/)) ampm='pm';
+  else if(consume(/午前|ごぜん|朝/)) ampm='am';
   if(consume(/(正午|昼)[にはで]?/)){ d.setHours(12,0,0,0); hasTime=true; }
 
   // 時刻（N時 / N時半 / N時M分 / N:M）※直後の助詞も除去
@@ -192,14 +236,15 @@ function parse(raw){
   if(hasDate){
     if(!hasTime) d.setHours(9,0,0,0);      // 時刻未指定は朝9時
     due=d;                                 // 過去当日は期限切れ表示に使う
+    if(dEnd){ dEnd.setHours(d.getHours(), d.getMinutes(), 0, 0); }
   }
   // タイトル整形：日時を抽出した時のみ残留助詞を除去（通常語の誤削りを防ぐ）
   let title=t.replace(/\s+/g,' ').trim();
   if(hasDate){
-    title=title.split(' ').filter(w=>!/^(に|の|で|は|を|へ|まで|までに)$/.test(w)).join(' ')
-               .replace(/^(に|の|で|は|を|へ|まで|までに)(?=\S)/,'').trim();
+    title=title.split(' ').filter(w=>!/^(に|の|で|は|を|へ|まで|までに|から)$/.test(w)).join(' ')
+               .replace(/^(に|の|で|は|を|へ|まで|までに|から)(?=\S)/,'').trim();
   }
-  return { title: title||raw.trim(), due: due?due.getTime():null, repeat };
+  return { title: title||raw.trim(), due: due?due.getTime():null, dueEnd: dEnd?dEnd.getTime():null, repeat };
 }
 
 /* ---------- 表示 ---------- */
@@ -214,6 +259,7 @@ function fmt(ts){
             `${d.getMonth()+1}/${d.getDate()}(${DOW[d.getDay()]})`;
   return `${day} ${hm}`;
 }
+function dateOnly(ts){ const d=new Date(ts); return `${d.getMonth()+1}/${d.getDate()}(${DOW[d.getDay()]})`; }
 function dayStart(ts){ const d=new Date(ts); d.setHours(0,0,0,0); return d.getTime(); }
 
 function render(){
@@ -260,7 +306,8 @@ function row(t,now){
   let when='';
   if(t.due!=null){
     const soon=!od && t.due<now+2*3600000;
-    when=`<span class="when ${od?'od':soon?'soon':''}">🕑 ${fmt(t.due)}${od?' ・超過':''}</span>`;
+    const range=t.dueEnd!=null ? ` 〜 ${dateOnly(t.dueEnd)}` : '';
+    when=`<span class="when ${od?'od':soon?'soon':''}">🕑 ${fmt(t.due)}${range}${od?' ・超過':''}</span>`;
   }
   const cal = `<div class="cal" data-act="cal" title="日時変更">📅</div>`;
   const ics = t.due!=null ? `<div class="cal" data-act="ics" title="カレンダー登録(.ics)">📤</div>` : '';
@@ -317,7 +364,9 @@ function editDue(t){
   let done=false;
   const finish=()=>{ if(done)return; done=true; setTimeout(()=>inp.remove(),200); };
   inp.addEventListener('change',()=>{
-    if(inp.value){ t.due=new Date(inp.value).getTime(); persist(t); toast('日時を変更：'+fmt(t.due)); }
+    if(inp.value){ t.due=new Date(inp.value).getTime();
+      if(t.dueEnd!=null && t.dueEnd<t.due) t.dueEnd=null;   // 期間の整合を保つ
+      persist(t); toast('日時を変更：'+fmt(t.due)); }
     finish();
   });
   inp.addEventListener('blur',finish);
@@ -371,6 +420,7 @@ function sharedRow(item){
         ${link}
         <div>
           <span class="badge">${SCOPE_LABEL[item.scope]||'共有'}</span>
+          ${item.periodLabel?`<span class="badge period">📅 ${esc(item.periodLabel)}</span>`:''}
           ${item.monthly?'<span class="badge monthly">毎月表示</span>':''}
         </div>
       </div>
@@ -379,25 +429,56 @@ function sharedRow(item){
     </div>
   </li>`;
 }
+function periodToLabel(due,dueEnd,raw){
+  if(due==null) return (raw||'').trim();
+  return dateOnly(due)+(hasTimeOf(due)?' '+hm(due):'')+(dueEnd!=null?' 〜 '+dateOnly(dueEnd):'');
+}
+function hasTimeOf(ts){ const d=new Date(ts); return !(d.getHours()===9 && d.getMinutes()===0); }
 function addSharedItem(){
   const title=$('#shareTitle').value.trim();
   const note=$('#shareNote').value.trim();
   const url=$('#shareUrl').value.trim();
-  if(!title && !note && !url){ toast('共有する内容を入力してください'); return; }
+  const periodRaw=$('#sharePeriod').value.trim();
+  if(!title && !note && !url && !periodRaw){ toast('共有する内容を入力してください'); return; }
+  let due=null,dueEnd=null,periodLabel='';
+  if(periodRaw){ const pp=parse(periodRaw); due=pp.due; dueEnd=pp.dueEnd; periodLabel=periodToLabel(due,dueEnd,periodRaw); }
   const item={
     id:Date.now()+''+Math.random().toString(36).slice(2,6),
     scope:$('#shareScope').value,
-    title:title||note.split(/\r?\n/)[0]||url,
+    title:title||note.split(/\r?\n/)[0]||url||periodLabel,
     note,
     url,
+    due, dueEnd, periodLabel,
     monthly:$('#shareMonthly').checked,
     done:false,
     doneAt:null,
     createdAt:Date.now()
   };
   persistShared(item);
-  $('#shareTitle').value=''; $('#shareNote').value=''; $('#shareUrl').value=''; $('#shareMonthly').checked=false;
+  $('#shareTitle').value=''; $('#shareNote').value=''; $('#shareUrl').value=''; $('#sharePeriod').value=''; $('#shareMonthly').checked=false;
   toast('共有ページに追加しました');
+}
+/* 共有ページの一括音声入力：件名＋期間＋時刻をまとめて話す */
+function startShareVoice(){
+  if(!SR){ toast('この端末は音声入力に非対応です'); return; }
+  const btn=$('#shareMic'); const r=new SR();
+  r.lang='ja-JP'; r.interimResults=true; r.maxAlternatives=1; r.continuous=true;
+  let finalText='', sTimer=null;
+  const arm=()=>{ clearTimeout(sTimer); sTimer=setTimeout(()=>{ try{r.stop()}catch(e){} },5000); };
+  r.onstart=()=>{ btn.classList.add('rec'); toast('お話しください…（件名・期間・時刻）'); arm(); };
+  r.onspeechstart=arm;
+  r.onresult=e=>{ let it=''; for(let i=e.resultIndex;i<e.results.length;i++){ const x=e.results[i];
+    if(x.isFinal) finalText+=x[0].transcript; else it+=x[0].transcript; } arm(); };
+  r.onerror=e=>{ toast('音声エラー：'+e.error); };
+  r.onend=()=>{ clearTimeout(sTimer); btn.classList.remove('rec');
+    const txt=finalText.trim(); if(txt) applyShareVoice(txt); };
+  try{ r.start(); }catch(e){}
+}
+function applyShareVoice(txt){
+  const p=parse(txt);
+  $('#shareTitle').value=p.title||txt;
+  $('#sharePeriod').value = p.due!=null ? periodToLabel(p.due,p.dueEnd,'') : '';
+  toast('音声を反映しました（内容を確認して「追加」）');
 }
 
 /* ---------- 操作 ---------- */
@@ -417,10 +498,11 @@ function addTask(text){
   const p=parse(text);
   if(!p.title) return;
   const task={id:Date.now()+''+Math.random().toString(36).slice(2,6),
-              title:p.title, due:p.due, repeat:p.repeat||null, done:false, doneAt:null, createdAt:Date.now()};
+              title:p.title, due:p.due, dueEnd:p.dueEnd||null, repeat:p.repeat||null, done:false, doneAt:null, createdAt:Date.now()};
   persist(task);
   const rp=p.repeat==='monthly'?'（毎月）':p.repeat==='daily'?'（毎日）':p.repeat==='weekly'?'（毎週）':'';
-  toast(p.due? `追加：${p.title}${rp}（${fmt(p.due)}）` : `追加：${p.title}${rp}`);
+  const whenTxt=p.due? (p.dueEnd? `${fmt(p.due)}〜${dateOnly(p.dueEnd)}` : fmt(p.due)) : '';
+  toast(whenTxt? `追加：${p.title}${rp}（${whenTxt}）` : `追加：${p.title}${rp}`);
 }
 $('#list').addEventListener('click',e=>{
   const li=e.target.closest('li'); if(!li) return;
@@ -458,6 +540,7 @@ $('#sharedList').addEventListener('click',e=>{
   }
 });
 $('#shareAdd').addEventListener('click',addSharedItem);
+$('#shareMic').addEventListener('click',startShareVoice);
 
 /* ---------- iOS純正カレンダー連携（.ics + 10分前アラーム） ---------- */
 function icsDate(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0');
@@ -477,18 +560,25 @@ function alarmLines(t){
   }
   return out;
 }
+function icsDay(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`; }
 function exportICS(t){
   if(t.due==null){ toast('期限のあるタスクのみ登録できます'); return; }
-  const start=icsDate(t.due), end=icsDate(t.due+30*60000), stamp=icsDate(Date.now());
+  const stamp=icsDate(Date.now());
   const rrule = t.repeat==='daily' ? ['RRULE:FREQ=DAILY']
     : t.repeat==='weekly' ? [`RRULE:FREQ=WEEKLY;BYDAY=${['SU','MO','TU','WE','TH','FR','SA'][new Date(t.due).getDay()]}`]
     : t.repeat==='monthly' ? ['RRULE:FREQ=MONTHLY']
     : [];
+  // 期間指定は終日の複数日イベント（DTEND は排他的に翌日）、単発は時刻+アラーム
+  const dt = t.dueEnd!=null
+    ? [`DTSTART;VALUE=DATE:${icsDay(t.due)}`,`DTEND;VALUE=DATE:${icsDay(t.dueEnd+864e5)}`]
+    : [`DTSTART:${icsDate(t.due)}`,`DTEND:${icsDate(t.due+30*60000)}`];
+  const alarms = t.dueEnd!=null ? [] : alarmLines(t);
   const ics=[
     'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//coetask//JP','CALSCALE:GREGORIAN','METHOD:PUBLISH',
     'BEGIN:VEVENT',`UID:${t.id}@coetask`,`DTSTAMP:${stamp}`,
-    `DTSTART:${start}`,`DTEND:${end}`,...rrule,`SUMMARY:${icsEsc(t.title)}`,
-    ...alarmLines(t),
+    ...dt,...rrule,`SUMMARY:${icsEsc(t.title)}`,
+    ...alarms,
     'END:VEVENT','END:VCALENDAR'
   ].join('\r\n');
   const blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
@@ -599,8 +689,14 @@ function hm(ts){ const d=new Date(ts); return `${pad2(d.getHours())}:${pad2(d.ge
 function tasksByDay(){
   const map={};
   for(const t of tasks){ if(t.due==null||t.done) continue;
-    const d=new Date(t.due); const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    (map[k]=map[k]||[]).push(t); }
+    const s=new Date(t.due); s.setHours(0,0,0,0);
+    const e=t.dueEnd!=null?new Date(t.dueEnd):new Date(t.due); e.setHours(0,0,0,0);
+    let n=0;
+    for(let d=new Date(s); d<=e && n<367; d.setDate(d.getDate()+1), n++){
+      const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      (map[k]=map[k]||[]).push(t);
+    }
+  }
   return map;
 }
 function renderCal(){
