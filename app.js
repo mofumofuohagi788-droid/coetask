@@ -35,10 +35,12 @@ if(!settings.data.alarms) settings.data.alarms=['h1','m30','m10'];
    下の PASTE_ を自分のFirebaseプロジェクト値に置換すると共有が有効化される。
    未設定でも「個人（端末内）」モードは通常どおり動作する。 */
 const FIREBASE_CONFIG = {
-  apiKey:     "PASTE_API_KEY",
-  authDomain: "PASTE_PROJECT.firebaseapp.com",
-  projectId:  "PASTE_PROJECT_ID",
-  appId:      "PASTE_APP_ID"
+  apiKey: "AIzaSyCnUEahIa1b_kRzK3Anywj6mVntr0kZ4-U",
+  authDomain: "coetask-1c803.firebaseapp.com",
+  projectId: "coetask-1c803",
+  storageBucket: "coetask-1c803.firebasestorage.app",
+  messagingSenderId: "418960031713",
+  appId: "1:418960031713:web:335357b9406a2d51315ca0"
 };
 const team={
   on:false, code:null, _db:null, _fs:null, _col:null, _sharedCol:null, _unsub:null, _unsubShared:null,
