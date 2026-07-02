@@ -1,5 +1,5 @@
 /* コエ・タスク Service Worker — オフライン対応 */
-const CACHE = 'coetask-v3';
+const CACHE = 'coetask-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -27,15 +27,16 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   // 自オリジンの静的資産のみ扱う（FirebaseなどのAPIは素通し）
   if (url.origin !== location.origin) return;
-  // ナビゲーションは network-first（更新反映）＋オフライン時キャッシュ
-  if (req.mode === 'navigate') {
+  // HTML/JS は network-first（更新を即反映）、オフライン時のみキャッシュ
+  const netFirst = req.mode === 'navigate' || /\.(html|js)$/.test(url.pathname);
+  if (netFirst) {
     e.respondWith(
-      fetch(req).then(r => { caches.open(CACHE).then(c => c.put('./index.html', r.clone())); return r; })
-        .catch(() => caches.match('./index.html'))
+      fetch(req).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put(req, c)); return r; })
+        .catch(() => caches.match(req).then(m => m || caches.match('./index.html')))
     );
     return;
   }
-  // それ以外は cache-first
+  // 画像・manifest等は cache-first（高速）
   e.respondWith(caches.match(req).then(r => r || fetch(req).then(res => {
     caches.open(CACHE).then(c => c.put(req, res.clone()));
     return res;
