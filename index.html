@@ -160,6 +160,46 @@
          background:var(--card2); border:1px solid var(--line); color:var(--txt); padding:10px 18px;
          border-radius:30px; font-size:14px; opacity:0; transition:opacity .25s; z-index:40; pointer-events:none;}
   .toast.on{opacity:1;}
+
+  /* タイトルのインライン編集 */
+  .editttl{width:100%; background:var(--card2); border:1px solid var(--accent); border-radius:10px;
+           color:var(--txt); font-size:16px; padding:8px 10px; outline:none;}
+  /* カレンダー表示ボタン */
+  .calopen{margin:2px 0 6px;}
+  .calopen button{width:100%; border:1px solid var(--line); background:var(--card); color:var(--txt);
+          border-radius:12px; padding:11px; font-size:14px; font-weight:700;}
+  /* カレンダー別画面 */
+  .calview{position:fixed; inset:0; z-index:36; display:none; background:rgba(6,10,22,.72);
+           backdrop-filter:blur(4px); align-items:flex-start; justify-content:center; overflow:auto;}
+  .calview.on{display:flex;}
+  .calpanel{background:var(--card); border:1px solid var(--line); border-radius:0 0 22px 22px;
+            width:100%; max-width:640px; padding:calc(var(--safe-t) + 14px) 12px 24px;}
+  .calhead{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
+  .calhead button{width:46px; height:40px; border:1px solid var(--line); background:var(--card2);
+          color:var(--txt); border-radius:12px; font-size:22px;}
+  #calTitle{font-size:17px; font-weight:700;}
+  .calmode{display:flex; gap:8px; margin-bottom:12px;}
+  .calmodebtn{flex:1; border:1px solid var(--line); background:var(--card2); color:var(--sub);
+          border-radius:10px; padding:9px; font-size:14px; font-weight:700;}
+  .calmodebtn.on{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .calgrid{display:grid; grid-template-columns:repeat(7,1fr); gap:3px;}
+  .caldow{text-align:center; font-size:11px; color:var(--sub); padding:2px 0;}
+  .calcell{min-height:66px; background:var(--card2); border:1px solid var(--line); border-radius:8px;
+           padding:3px; overflow:hidden;}
+  .calcell.out{opacity:.35;}
+  .calcell.today{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset;}
+  .caldnum{font-size:11px; color:var(--sub); text-align:right; margin-bottom:2px;}
+  .calcell.today .caldnum{color:var(--accent2); font-weight:700;}
+  .caltask{font-size:10px; line-height:1.3; background:var(--accent); color:#fff; border-radius:4px;
+           padding:1px 3px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .calmore{font-size:10px; color:var(--sub);}
+  .calweekday{background:var(--card2); border:1px solid var(--line); border-radius:12px;
+           padding:10px 12px; margin-bottom:8px;}
+  .calweekday.today{border-color:var(--accent);}
+  .calwdhead{font-size:13px; font-weight:700; color:var(--accent2); margin-bottom:4px;}
+  .calwtask{font-size:14px; padding:5px 0; border-top:1px solid var(--line);}
+  .calwtask span{color:var(--warn); font-variant-numeric:tabular-nums; margin-right:8px;}
+  .calwempty{font-size:13px; color:var(--sub); padding-top:2px;}
   button{font-family:inherit;}
 </style>
 </head>
@@ -184,6 +224,7 @@
     <div class="chip"><b id="cUp">0</b><span>今後</span></div>
     <div class="chip done"><b id="cDone">0</b><span>完了</span></div>
   </div>
+  <div class="calopen"><button id="openCal">📅 カレンダーで見る</button></div>
   <div id="list"></div>
 </main>
 
@@ -237,6 +278,22 @@
     <p>📅でカレンダー登録した予定に、選択したタイミングでOS通知が届きます（複数選択可）。</p>
     <div id="opts"></div>
     <button class="close" id="sheetClose">完了</button>
+  </div>
+</div>
+
+<div class="calview" id="calView">
+  <div class="calpanel">
+    <div class="calhead">
+      <button id="calPrev" aria-label="前へ">‹</button>
+      <div id="calTitle"></div>
+      <button id="calNext" aria-label="次へ">›</button>
+    </div>
+    <div class="calmode">
+      <button class="calmodebtn on" data-mode="month">1か月</button>
+      <button class="calmodebtn" data-mode="week">1週間</button>
+    </div>
+    <div id="calBody"></div>
+    <button class="close" id="calClose">閉じる</button>
   </div>
 </div>
 

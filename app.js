@@ -258,18 +258,20 @@ function row(t,now){
     const soon=!od && t.due<now+2*3600000;
     when=`<span class="when ${od?'od':soon?'soon':''}">🕑 ${fmt(t.due)}${od?' ・超過':''}</span>`;
   }
-  const cal = t.due!=null ? `<div class="cal" data-act="cal" title="カレンダーに登録">📅</div>` : '';
+  const cal = `<div class="cal" data-act="cal" title="日時変更">📅</div>`;
+  const ics = t.due!=null ? `<div class="cal" data-act="ics" title="カレンダー登録(.ics)">📤</div>` : '';
   const repLabel = t.repeat==='monthly'?'毎月':t.repeat==='weekly'?'毎週':t.repeat==='daily'?'毎日':'';
   const rep = repLabel ? `<span class="rep">🔁${repLabel}</span>` : '';
   const monthly = t.due!=null ? `<div class="cal" data-act="monthly" title="毎月表示">${t.repeat==='monthly'?'🔁':'↻'}</div>` : '';
   return `<li class="${t.done?'done':''} ${od?'od':''}" data-id="${t.id}">
     <div class="check" data-act="toggle">✓</div>
     <div class="body">
-      <div class="ttl">${esc(t.title)}</div>
+      <div class="ttl" data-act="edit" title="タップで編集">${esc(t.title)}</div>
       <div class="meta">${when||'<span>期限なし</span>'}${rep}</div>
     </div>
     ${monthly}
     ${cal}
+    ${ics}
     <div class="del" data-act="del">✕</div>
   </li>`;
 }
@@ -281,6 +283,42 @@ function safeUrl(raw){
     const u=new URL(/^https?:\/\//i.test(s)?s:'https://'+s);
     return /^https?:$/.test(u.protocol) ? u.href : '';
   }catch(e){ return ''; }
+}
+
+/* ---------- タスク編集（タイトル手入力・日時変更） ---------- */
+function startEdit(li,t){
+  const ttl=li.querySelector('.ttl'); if(!ttl) return;
+  const inp=document.createElement('input');
+  inp.className='editttl'; inp.value=t.title;
+  ttl.replaceWith(inp); inp.focus(); inp.select();
+  let done=false;
+  const commit=save=>{ if(done)return; done=true;
+    const v=inp.value.trim();
+    if(save && v && v!==t.title){ t.title=v; persist(t); toast('タイトルを変更'); }
+    else render();
+  };
+  inp.addEventListener('keydown',ev=>{
+    if(ev.key==='Enter'){ ev.preventDefault(); commit(true); }
+    else if(ev.key==='Escape'){ commit(false); }
+  });
+  inp.addEventListener('blur',()=>commit(true));
+}
+function toLocalInput(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+function editDue(t){
+  const inp=document.createElement('input');
+  inp.type='datetime-local';
+  inp.style.cssText='position:fixed; left:8px; bottom:120px; z-index:50; opacity:0;';
+  inp.value=toLocalInput(t.due?new Date(t.due):new Date());
+  document.body.appendChild(inp);
+  let done=false;
+  const finish=()=>{ if(done)return; done=true; setTimeout(()=>inp.remove(),200); };
+  inp.addEventListener('change',()=>{
+    if(inp.value){ t.due=new Date(inp.value).getTime(); persist(t); toast('日時を変更：'+fmt(t.due)); }
+    finish();
+  });
+  inp.addEventListener('blur',finish);
+  inp.focus();
+  if(inp.showPicker){ try{ inp.showPicker(); }catch(e){ inp.click(); } } else inp.click();
 }
 
 /* ---------- 共有ページ ---------- */
@@ -384,7 +422,9 @@ $('#list').addEventListener('click',e=>{
   const li=e.target.closest('li'); if(!li) return;
   const id=li.dataset.id, act=e.target.dataset.act;
   const t=tasks.find(x=>x.id===id); if(!t) return;
-  if(act==='cal'){ exportICS(t); return; }
+  if(act==='edit'){ startEdit(li,t); return; }
+  if(act==='cal'){ editDue(t); return; }
+  if(act==='ics'){ exportICS(t); return; }
   if(act==='del'){ removeTask(id); return; }
   if(act==='monthly'){
     t.repeat = t.repeat==='monthly' ? null : 'monthly';
@@ -466,16 +506,17 @@ function toast(msg){ const el=$('#toast'); el.textContent=msg; el.classList.add(
 /* ---------- 音声入力 ---------- */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 const mic=$('#mic'), ov=$('#listening'), heard=$('#heard');
-let rec=null, recording=false;
-function stopRec(){ if(rec){ try{rec.stop()}catch(e){} } recording=false; mic.classList.remove('rec'); ov.classList.remove('on'); }
+let rec=null, recording=false, recTimer=null;
+function stopRec(){ clearTimeout(recTimer); if(rec){ try{rec.stop()}catch(e){} } recording=false; mic.classList.remove('rec'); ov.classList.remove('on'); }
 $('#closeL').addEventListener('click',stopRec);
 
 mic.addEventListener('click',()=>{
   if(!SR){ toast('この端末は音声入力に非対応です。手入力をご利用ください'); input.focus(); return; }
   if(recording){ stopRec(); return; }
-  rec=new SR(); rec.lang='ja-JP'; rec.interimResults=true; rec.maxAlternatives=1; rec.continuous=false;
+  rec=new SR(); rec.lang='ja-JP'; rec.interimResults=true; rec.maxAlternatives=1; rec.continuous=true;
   let finalText='';
-  rec.onstart=()=>{ recording=true; mic.classList.add('rec'); ov.classList.add('on'); heard.textContent='お話しください…'; };
+  rec.onstart=()=>{ recording=true; mic.classList.add('rec'); ov.classList.add('on'); heard.textContent='お話しください…（7秒）';
+    clearTimeout(recTimer); recTimer=setTimeout(()=>{ try{rec.stop()}catch(e){} },7000); };
   rec.onresult=e=>{
     let interim='';
     for(let i=e.resultIndex;i<e.results.length;i++){
@@ -486,6 +527,7 @@ mic.addEventListener('click',()=>{
   };
   rec.onerror=e=>{ heard.textContent='認識できませんでした'; toast('音声エラー：'+e.error); };
   rec.onend=()=>{
+    clearTimeout(recTimer);
     recording=false; mic.classList.remove('rec'); ov.classList.remove('on');
     const txt=finalText.trim();
     if(txt) addTask(txt);
@@ -542,6 +584,71 @@ opts.addEventListener('click',e=>{
   settings.data.alarms=ALARMS.filter(a=>arr.includes(a.k)).map(a=>a.k); // 表示順を維持
   settings.save(); renderOpts();
 });
+
+/* ---------- カレンダー表示（週/月・別画面） ---------- */
+const calState={mode:'month', cursor:new Date()};
+function pad2(n){ return String(n).padStart(2,'0'); }
+function hm(ts){ const d=new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+function tasksByDay(){
+  const map={};
+  for(const t of tasks){ if(t.due==null||t.done) continue;
+    const d=new Date(t.due); const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    (map[k]=map[k]||[]).push(t); }
+  return map;
+}
+function renderCal(){
+  const map=tasksByDay(), cur=calState.cursor;
+  const td=new Date(); const todayK=`${td.getFullYear()}-${td.getMonth()}-${td.getDate()}`;
+  if(calState.mode==='month'){
+    $('#calTitle').textContent=`${cur.getFullYear()}年${cur.getMonth()+1}月`;
+    const first=new Date(cur.getFullYear(),cur.getMonth(),1);
+    const start=new Date(first); start.setDate(1-first.getDay());
+    let html='<div class="calgrid">';
+    for(const w of DOW) html+=`<div class="caldow">${w}</div>`;
+    for(let i=0;i<42;i++){
+      const d=new Date(start); d.setDate(start.getDate()+i);
+      const inMonth=d.getMonth()===cur.getMonth();
+      const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      const items=(map[k]||[]).sort((a,b)=>a.due-b.due);
+      html+=`<div class="calcell ${inMonth?'':'out'} ${k===todayK?'today':''}">
+        <div class="caldnum">${d.getDate()}</div>
+        ${items.slice(0,3).map(t=>`<div class="caltask">${esc(t.title)}</div>`).join('')}
+        ${items.length>3?`<div class="calmore">+${items.length-3}</div>`:''}
+      </div>`;
+    }
+    html+='</div>';
+    $('#calBody').innerHTML=html;
+  }else{
+    const start=new Date(cur); start.setDate(cur.getDate()-cur.getDay()); start.setHours(0,0,0,0);
+    const end=new Date(start); end.setDate(start.getDate()+6);
+    $('#calTitle').textContent=`${start.getMonth()+1}/${start.getDate()} 〜 ${end.getMonth()+1}/${end.getDate()}`;
+    let html='';
+    for(let i=0;i<7;i++){
+      const d=new Date(start); d.setDate(start.getDate()+i);
+      const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      const items=(map[k]||[]).sort((a,b)=>a.due-b.due);
+      html+=`<div class="calweekday ${k===todayK?'today':''}">
+        <div class="calwdhead">${d.getMonth()+1}/${d.getDate()}（${DOW[d.getDay()]}）</div>
+        ${items.length?items.map(t=>`<div class="calwtask"><span>${hm(t.due)}</span>${esc(t.title)}</div>`).join(''):'<div class="calwempty">予定なし</div>'}
+      </div>`;
+    }
+    $('#calBody').innerHTML=html;
+  }
+}
+function openCal(){ calState.cursor=new Date(); renderCal(); $('#calView').classList.add('on'); }
+function shiftCal(dir){ const c=calState.cursor;
+  if(calState.mode==='month') c.setMonth(c.getMonth()+dir); else c.setDate(c.getDate()+7*dir);
+  renderCal(); }
+$('#openCal').addEventListener('click',openCal);
+$('#calClose').addEventListener('click',()=>$('#calView').classList.remove('on'));
+$('#calView').addEventListener('click',e=>{ if(e.target===$('#calView')) $('#calView').classList.remove('on'); });
+$('#calPrev').addEventListener('click',()=>shiftCal(-1));
+$('#calNext').addEventListener('click',()=>shiftCal(1));
+document.querySelectorAll('.calmodebtn').forEach(b=>b.addEventListener('click',()=>{
+  calState.mode=b.dataset.mode;
+  document.querySelectorAll('.calmodebtn').forEach(x=>x.classList.toggle('on',x===b));
+  renderCal();
+}));
 
 /* ---------- 起動 ---------- */
 render();

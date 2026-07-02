@@ -1,5 +1,5 @@
 /* コエ・タスク Service Worker — オフライン対応 */
-const CACHE = 'coetask-v2';
+const CACHE = 'coetask-v3';
 const ASSETS = [
   './',
   './index.html',
